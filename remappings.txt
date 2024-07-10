@@ -1,0 +1,1 @@
+@semaphore-protocol/contracts/=./node_modules/@semaphore-protocol/contracts/
