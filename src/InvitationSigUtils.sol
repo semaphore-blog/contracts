@@ -1,7 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.23;
 
+/**
+ * @title InvitationSigUtils
+ * @notice ERC712 signature utility for invitation codes
+ */
 contract InvitationSigUtils {
+    /**
+     * @notice Invitation struct
+     * @param groupId The ID of the group.
+     * @param nonce The nonce of the invitation code. Must be unique for each invitation.
+     * @param deadline The deadline of the invitation code. 0 means no deadline.
+     */
     struct Invitation {
         uint256 groupId;
         uint256 nonce;
@@ -16,6 +26,11 @@ contract InvitationSigUtils {
         DOMAIN_SEPARATOR = _DOMAIN_SEPARATOR;
     }
 
+    /**
+     * @notice Generates the hash of the invitation struct
+     * @param _invitation The invitation struct
+     * @return The hash of the invitation struct
+     */
     function getStructHash(
         Invitation memory _invitation
     ) internal pure returns (bytes32) {
@@ -30,6 +45,11 @@ contract InvitationSigUtils {
             );
     }
 
+    /**
+     * @notice Invitation struct type hash according to EIP712
+     * @param _invitation The invitation struct
+     * @return The hash of the invitation struct with the domain separator
+     */
     function getTypedDataHash(
         Invitation memory _invitation
     ) public view returns (bytes32) {
