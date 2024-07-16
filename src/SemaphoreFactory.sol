@@ -8,11 +8,15 @@ contract SemaphoreFactory {
     mapping(uint256 => address) public creator; // Group ID to creator address
     mapping(uint256 => bool) public nonceUsed; // nonce to used status
 
+    mapping(uint256 => string) public metadataUri; // Group ID to ipfs metadata URI
+
     event GroupCreated(uint256 groupId, address creator);
+    event MetadataUpdated(uint256 groupId, string metadataUri);
 
     InvitationSigUtils public sigUtils;
 
     error InvalidInvitationSignature();
+    error OnlyCreator();
 
     constructor(address _semaphore) {
         semaphore = _semaphore;
@@ -83,5 +87,23 @@ contract SemaphoreFactory {
         if (signer != creator[_groupId]) revert InvalidInvitationSignature();
 
         ISemaphore(semaphore).addMember(_groupId, _identityCommitment);
+    }
+
+    /**
+     * @notice Sets the metadata URI of a group.
+     * @param _groupId The ID of the group.
+     * @param _metadataUri The metadata URI.
+     */
+    function setMetadataUri(
+        uint256 _groupId,
+        string calldata _metadataUri
+    ) external onlyCreator(_groupId) {
+        metadataUri[_groupId] = _metadataUri;
+        emit MetadataUpdated(_groupId, _metadataUri);
+    }
+
+    modifier onlyCreator(uint256 _groupId) {
+        if (msg.sender != creator[_groupId]) revert OnlyCreator();
+        _;
     }
 }
