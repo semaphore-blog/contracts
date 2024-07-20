@@ -5,7 +5,7 @@ pragma solidity 0.8.23;
  * @title InvitationSigUtils
  * @notice ERC712 signature utility for invitation codes
  */
-contract InvitationSigUtils {
+library InvitationSigUtils {
     /**
      * @notice Invitation struct
      * @param groupId The ID of the group.
@@ -18,13 +18,8 @@ contract InvitationSigUtils {
         uint256 deadline;
     }
 
-    bytes32 public immutable DOMAIN_SEPARATOR;
     bytes32 public constant INVITATION_TYPEHASH =
         keccak256("Invitation(uint256 groupId,uint256 nonce,uint256 deadline)");
-
-    constructor(bytes32 _DOMAIN_SEPARATOR) {
-        DOMAIN_SEPARATOR = _DOMAIN_SEPARATOR;
-    }
 
     /**
      * @notice Generates the hash of the invitation struct
@@ -47,12 +42,14 @@ contract InvitationSigUtils {
 
     /**
      * @notice Invitation struct type hash according to EIP712
+     * @param DOMAIN_SEPARATOR The domain separator hash
      * @param _invitation The invitation struct
      * @return The hash of the invitation struct with the domain separator
      */
     function getTypedDataHash(
+        bytes32 DOMAIN_SEPARATOR,
         Invitation memory _invitation
-    ) public view returns (bytes32) {
+    ) external pure returns (bytes32) {
         return
             keccak256(
                 abi.encodePacked(
