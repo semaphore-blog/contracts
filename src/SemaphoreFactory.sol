@@ -2,108 +2,86 @@
 pragma solidity 0.8.23;
 import "@semaphore-protocol/contracts/interfaces/ISemaphore.sol";
 import {InvitationSigUtils} from "./InvitationSigUtils.sol";
+import {ISemaphoreBlog} from "./interfaces/ISemaphoreBlog.sol";
+import {SemaphoreBlog} from "./SemaphoreBlog.sol";
 
 contract SemaphoreFactory {
     address public immutable semaphore; // Semaphore contract address
-    mapping(uint256 => address) public creator; // Group ID to creator address
-    mapping(uint256 => bool) public nonceUsed; // nonce to used status
+    event BlogCreated(uint256 groupId, address creator, address blog);
 
-    mapping(uint256 => string) public metadataUri; // Group ID to ipfs metadata URI
-
-    event GroupCreated(uint256 groupId, address creator);
-    event MetadataUpdated(uint256 groupId, string metadataUri);
-
-    InvitationSigUtils public sigUtils;
-
-    error InvalidInvitationSignature();
-    error OnlyCreator();
+    error FailedToCreateBlog();
 
     constructor(address _semaphore) {
         semaphore = _semaphore;
-
-        sigUtils = new InvitationSigUtils(
-            keccak256(
-                abi.encode(
-                    keccak256(
-                        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-                    ),
-                    keccak256("SemaphoreFactory"),
-                    keccak256("0.0.1"),
-                    block.chainid,
-                    address(this)
-                )
-            )
-        );
     }
 
     /**
      * @notice Creates a new group in the Semaphore contract and sets the msg.sender as the creator.
      * @dev Calls the createGroup function in the Semaphore contract.
      * @return groupId The ID of the newly created group.
+     * @return blog The address of the newly created blog contract.
      */
-    function createGroup() external returns (uint256 groupId) {
-        groupId = ISemaphore(semaphore).createGroup(address(this));
-        creator[groupId] = msg.sender;
+    function createGroup() external returns (uint256 groupId, address blog) {
+        address blog;
+        bytes32 salt = keccak256(abi.encodePacked(msg.sender, block.number)); // one blog per block per creator
+        bytes memory creationCode = getCreationCode(msg.sender);
 
-        emit GroupCreated(groupId, msg.sender);
+        assembly {
+            blog := create2(
+                callvalue(),
+                add(creationCode, 0x20),
+                mload(creationCode),
+                salt
+            )
+        }
+
+        if (blog == address(0)) revert FailedToCreateBlog();
+
+        groupId = ISemaphoreBlog(blog).groupId();
+        emit BlogCreated(groupId, msg.sender, blog);
     }
 
     /**
-     * @notice Allows a user to join a group using an invitation code.
-     * @dev Verifies the signature of the invitation code and adds the user to the group.
-     * @param _groupId The ID of the group.
-     * @param _nonce The nonce of the invitation code.
-     * @param _deadline The deadline of the invitation code. 0 means no deadline.
-     * @param _identityCommitment The semaphore identity commitment of the user.
-     * @param _v The recovery ID of the signature.
-     * @param _r The R value of the signature.
-     * @param _s The S value of the signature.
+     * @notice Returns the creation code for the SemaphoreBlog contract.
+     * @dev Encodes the creation code for the SemaphoreBlog contract with the Semaphore address and creator address.
+     * @param creator The address of the creator of the blog.
+     * @return creationCode The creation code for the SemaphoreBlog contract.
      */
-    function joinWithInvitationCode(
-        uint256 _groupId,
-        uint256 _nonce,
-        uint256 _deadline,
-        uint256 _identityCommitment,
-        uint8 _v,
-        bytes32 _r,
-        bytes32 _s
-    ) external {
-        if (nonceUsed[_nonce]) revert InvalidInvitationSignature();
-        nonceUsed[_nonce] = true;
-
-        if (_deadline != 0 && block.timestamp > _deadline)
-            revert InvalidInvitationSignature();
-
-        InvitationSigUtils.Invitation memory invitation = InvitationSigUtils
-            .Invitation({
-                groupId: _groupId,
-                nonce: _nonce,
-                deadline: _deadline
-            });
-
-        bytes32 digest = sigUtils.getTypedDataHash(invitation);
-        address signer = ecrecover(digest, _v, _r, _s);
-
-        if (signer != creator[_groupId]) revert InvalidInvitationSignature();
-
-        ISemaphore(semaphore).addMember(_groupId, _identityCommitment);
+    function getCreationCode(
+        address creator
+    ) public view returns (bytes memory creationCode) {
+        creationCode = abi.encodePacked(
+            type(SemaphoreBlog).creationCode,
+            abi.encode(semaphore, creator)
+        );
     }
 
     /**
-     * @notice Sets the metadata URI of a group.
-     * @param _groupId The ID of the group.
-     * @param _metadataUri The metadata URI.
+     * @notice Computes the address of a SemaphoreBlog contract.
+     * @dev Computes the address of a SemaphoreBlog contract using the creator address and a salt.
+     * @param salt The salt used to compute the address.
+     * @param creator The address of the creator of the blog.
+     * @return blog The address of the SemaphoreBlog contract.
      */
-    function setMetadataUri(
-        uint256 _groupId,
-        string calldata _metadataUri
-    ) external onlyCreator(_groupId) {
-        metadataUri[_groupId] = _metadataUri;
-        emit MetadataUpdated(_groupId, _metadataUri);
-    }
-
-    modifier onlyCreator(uint256 _groupId) {
-        if (msg.sender != creator[_groupId]) revert OnlyCreator();
-        _;
+    function computeAddress(
+        bytes32 salt,
+        address creator
+    ) external view returns (address) {
+        bytes memory creationCode = getCreationCode(creator);
+        return
+            address(
+                uint160(
+                    uint256(
+                        keccak256(
+                            abi.encodePacked(
+                                bytes1(0xff),
+                                address(this),
+                                salt,
+                                keccak256(creationCode)
+                            )
+                        )
+                    )
+                )
+            );
     }
 }
