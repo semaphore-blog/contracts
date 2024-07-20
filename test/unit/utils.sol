@@ -1,8 +1,10 @@
 pragma solidity 0.8.23;
 import "forge-std/Test.sol";
+import "forge-std/console.sol";
 import {SemaphoreFactory} from "src/SemaphoreFactory.sol";
 import {ISemaphore} from "@semaphore-protocol/contracts/interfaces/ISemaphore.sol";
 import {InvitationSigUtils} from "src/InvitationSigUtils.sol";
+import {ISemaphoreBlog} from "src/interfaces/ISemaphoreBlog.sol";
 
 contract MockTest is Test {
     function _mockAndExpect(
@@ -23,41 +25,57 @@ contract SemaphoreFactoryTest is MockTest {
         factory = new SemaphoreFactory(semaphore);
     }
 
-    function _generate_invitation_code(
-        uint256 signerPk,
+    function _createGroup(
         uint256 groupId,
-        uint256 nonce,
-        uint256 deadline
-    ) internal view returns (uint8 v, bytes32 r, bytes32 s) {
-        InvitationSigUtils.Invitation memory invitation = InvitationSigUtils
-            .Invitation({groupId: groupId, nonce: nonce, deadline: deadline});
-        bytes32 structHash = factory.sigUtils().getTypedDataHash(invitation);
-        (v, r, s) = vm.sign(signerPk, structHash);
-    }
+        address creator
+    ) internal returns (address blog) {
+        blog = factory.computeAddress(
+            keccak256(abi.encodePacked(creator, block.number)),
+            creator
+        );
 
-    function _createGroup(uint256 groupId, address creator) internal {
         _mockAndExpect(
             semaphore,
             abi.encodeWithSelector(
                 bytes4(keccak256("createGroup(address)")),
-                address(factory)
+                blog
             ),
             abi.encode(groupId)
         );
+
         vm.prank(creator);
         factory.createGroup();
     }
 
-    function _join(
+    function _generate_invitation_code(
+        address blog,
         uint256 signerPk,
-        uint256 groupId,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (uint8 v, bytes32 r, bytes32 s) {
+        InvitationSigUtils.Invitation memory invitation = InvitationSigUtils
+            .Invitation({
+                groupId: ISemaphoreBlog(blog).groupId(),
+                nonce: nonce,
+                deadline: deadline
+            });
+        bytes32 structHash = InvitationSigUtils.getTypedDataHash(
+            ISemaphoreBlog(blog).domainSeparator(),
+            invitation
+        );
+        (v, r, s) = vm.sign(signerPk, structHash);
+    }
+
+    function _join(
+        address blog,
+        uint256 signerPk,
         uint256 identityCommitment,
         uint256 deadline,
         uint256 nonce
     ) internal {
         (uint8 v, bytes32 r, bytes32 s) = _generate_invitation_code(
+            blog,
             signerPk,
-            groupId,
             nonce,
             deadline
         );
@@ -65,13 +83,12 @@ contract SemaphoreFactoryTest is MockTest {
             semaphore,
             abi.encodeWithSelector(
                 ISemaphore.addMember.selector,
-                groupId,
+                ISemaphoreBlog(blog).groupId(),
                 identityCommitment
             ),
             abi.encode()
         );
-        factory.joinWithInvitationCode(
-            groupId,
+        ISemaphoreBlog(blog).joinWithInvitationCode(
             nonce,
             deadline,
             identityCommitment,
